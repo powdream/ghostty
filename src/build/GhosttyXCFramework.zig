@@ -4,6 +4,7 @@ const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const GhosttyLib = @import("GhosttyLib.zig");
+const LipoStep = @import("LipoStep.zig");
 const XCFrameworkStep = @import("XCFrameworkStep.zig");
 
 xcframework: *XCFrameworkStep,
@@ -36,8 +37,8 @@ pub fn init(
         }),
     ));
 
-    // iOS Simulator
-    const ios_sim = try GhosttyLib.initStatic(b, &try deps.retarget(
+    // iOS Simulator (arm64)
+    const ios_sim_arm64 = try GhosttyLib.initStatic(b, &try deps.retarget(
         b,
         b.resolveTargetQuery(.{
             .cpu_arch = .aarch64,
@@ -53,6 +54,25 @@ pub fn init(
             .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_a17 },
         }),
     ));
+
+    // iOS Simulator (x86_64) — needed for Intel Macs
+    const ios_sim_x86_64 = try GhosttyLib.initStatic(b, &try deps.retarget(
+        b,
+        b.resolveTargetQuery(.{
+            .cpu_arch = .x86_64,
+            .os_tag = .ios,
+            .os_version_min = Config.osVersionMin(.ios),
+            .abi = .simulator,
+        }),
+    ));
+
+    // Universal iOS Simulator (arm64 + x86_64)
+    const ios_sim_universal = LipoStep.create(b, .{
+        .name = "ghostty-ios-sim",
+        .out_name = "libghostty-fat.a",
+        .input_a = ios_sim_arm64.output,
+        .input_b = ios_sim_x86_64.output,
+    });
 
     // The xcframework wraps our ghostty library so that we can link
     // it to the final app built with Swift.
@@ -72,9 +92,9 @@ pub fn init(
                     .dsym = ios.dsym,
                 },
                 .{
-                    .library = ios_sim.output,
+                    .library = ios_sim_universal.output,
                     .headers = b.path("include"),
-                    .dsym = ios_sim.dsym,
+                    .dsym = null,
                 },
             },
 

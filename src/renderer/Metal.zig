@@ -73,7 +73,10 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
     errdefer queue.release();
 
     const default_storage_mode: mtl.MTLResourceOptions.StorageMode =
-        if (device.getProperty(bool, "hasUnifiedMemory")) .shared else .managed;
+        if (comptime builtin.os.tag == .ios)
+        // iOS only supports shared and private, never managed.
+        .shared
+    else if (device.getProperty(bool, "hasUnifiedMemory")) .shared else .managed;
 
     const ViewInfo = struct {
         view: objc.Object,
@@ -114,7 +117,8 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
         },
 
         .ios => {
-            info.view.msgSend(void, objc.sel("addSublayer"), .{layer.layer.value});
+            const view_layer = info.view.getProperty(objc.Object, "layer");
+            view_layer.msgSend(void, objc.sel("addSublayer:"), .{layer.layer.value});
         },
 
         else => @compileError("unsupported target for Metal"),

@@ -17,11 +17,33 @@ pub inline fn home(buf: []u8) !?[]const u8 {
         inline .linux, .freebsd, .macos => try homeUnix(buf),
         .windows => try homeWindows(buf),
 
-        // iOS doesn't have a user-writable home directory
-        .ios => null,
+        // iOS apps have a writable sandbox container directory.
+        .ios => try homeIOS(buf),
 
         else => @compileError("unimplemented"),
     };
+}
+
+fn homeIOS(buf: []u8) !?[]const u8 {
+    // Check HOME env var first (set by the Swift layer or simulator).
+    if (posix.getenv("HOME")) |result| {
+        if (buf.len < result.len) return Error.BufferTooSmall;
+        @memcpy(buf[0..result.len], result);
+        return buf[0..result.len];
+    }
+
+    // Fall back to NSFileManager (same ObjC API as macOS).
+    const NSFileManager = objc.getClass("NSFileManager") orelse return null;
+    const manager = NSFileManager.msgSend(objc.Object, objc.sel("defaultManager"), .{});
+    const homeURL = manager.getProperty(objc.Object, "homeDirectoryForCurrentUser");
+    const homePath = homeURL.getProperty(objc.Object, "path");
+
+    const c_str = homePath.getProperty([*:0]const u8, "UTF8String");
+    const result = std.mem.sliceTo(c_str, 0);
+
+    if (buf.len < result.len) return Error.BufferTooSmall;
+    @memcpy(buf[0..result.len], result);
+    return buf[0..result.len];
 }
 
 fn homeUnix(buf: []u8) !?[]const u8 {
